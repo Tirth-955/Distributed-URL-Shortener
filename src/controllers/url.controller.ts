@@ -16,16 +16,15 @@ export async function createUrl(req: Request, res: Response, next: NextFunction)
     }
 
     try {
-        const created = await createShortUrl(result.data.url);
+        const created = await createShortUrl(result.data.url, result.data.expiresInDays);
 
-        const baseUrl = (env.BASE_URL ?? `${req.protocol}://${req.get("host")}`).replace(
-            /\/+$/,
-            ""
-        );
+        const shortUrl = `${env.BASE_URL}/${created.shortCode}`;
 
         return res.status(201).json({
-            ...created,
-            shortUrl: `${baseUrl}/${created.shortCode}`,
+            shortCode: created.shortCode,
+            originalUrl: created.originalUrl,
+            shortUrl,
+            expiresAt: created.expiresAt,
         });
     } catch (error) {
         next(error);

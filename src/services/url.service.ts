@@ -4,7 +4,12 @@ import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
 import { generateShortCode } from "../utils/generate-short-code.js";
 
-export async function createShortUrl(originalUrl: string) {
+export async function createShortUrl(originalUrl: string, expiresInDays?: number) {
+    const expiresAt =
+        expiresInDays === undefined
+            ? null
+            : new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
+
     for (let attempt = 0; attempt < 3; attempt++) {
         const shortCode = generateShortCode();
 
@@ -12,9 +17,10 @@ export async function createShortUrl(originalUrl: string) {
             await db.insert(urls).values({
                 shortCode,
                 originalUrl,
+                expiresAt,
             });
 
-            return { shortCode, originalUrl };
+            return { shortCode, originalUrl, expiresAt };
         } catch (error: unknown) {
             const isUniqueViolation =
                 typeof error === "object" &&

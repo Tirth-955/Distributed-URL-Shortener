@@ -1,3 +1,5 @@
+import { eq } from "drizzle-orm";
+
 import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
 import { generateShortCode } from "../utils/generate-short-code.js";
@@ -27,4 +29,25 @@ export async function createShortUrl(originalUrl: string) {
     }
 
     throw new Error("Unable to generate a unique short code");
+}
+
+export async function getUrlByShortCode(shortCode: string) {
+    const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
+
+    if (!url) {
+        return { status: "not_found" as const };
+    }
+
+    if (!url.isActive) {
+        return { status: "not_found" as const };
+    }
+
+    if (url.expiresAt && url.expiresAt.getTime() <= Date.now()) {
+        return { status: "expired" as const };
+    }
+
+    return {
+        status: "found" as const,
+        originalUrl: url.originalUrl,
+    };
 }

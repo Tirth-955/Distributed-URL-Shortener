@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
 import { generateShortCode } from "../utils/generate-short-code.js";
+import { cacheUrl, getCachedUrl } from "./url-cache.service.js";
 
 export async function createShortUrl(originalUrl: string, expiresInDays?: number) {
     const expiresAt =
@@ -38,19 +39,33 @@ export async function createShortUrl(originalUrl: string, expiresInDays?: number
 }
 
 export async function getUrlByShortCode(shortCode: string) {
-    const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
+    const cached = await getCachedUrl(shortCode);
 
-    if (!url) {
-        return { status: "not_found" as const };
+    if (cached) {
+        if (cached.expiresAt !== null && new Date(cached.expiresAt).getTime() <= Date.now()) {
+            return { status: "expired" as const };
+        }
+
+        return {
+            status: "found" as const,
+            originalUrl: cached.originalUrl,
+        };
     }
 
-    if (!url.isActive) {
+    const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
+
+    if (!url || !url.isActive) {
         return { status: "not_found" as const };
     }
 
     if (url.expiresAt && url.expiresAt.getTime() <= Date.now()) {
         return { status: "expired" as const };
     }
+
+    await cacheUrl(shortCode, {
+        originalUrl: url.originalUrl,
+        expiresAt: url.expiresAt?.toISOString() ?? null,
+    });
 
     return {
         status: "found" as const,

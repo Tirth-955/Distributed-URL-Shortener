@@ -81,7 +81,7 @@ flowchart LR
 ```
 src/
 ├── app.ts                      # Express app (routes, middleware wiring)
-├── server.ts                   # Entry point + background click flush
+├── server.ts                   # Entry point + background flush + graceful shutdown
 ├── config/                     # Zod-validated env, Redis client
 ├── controllers/                # HTTP layer: request/response mapping
 ├── services/                   # Business logic: urls, cache, click stats
@@ -92,6 +92,9 @@ src/
 └── utils/                      # Short code generation
 tests/                          # Vitest + Supertest endpoint tests
 drizzle/                        # Generated SQL migrations
+Dockerfile                      # Multi-stage build: runtime image + one-shot migrate image
+docker-compose.yml              # nginx + app × N + postgres + redis topology
+nginx/nginx.conf                # Load balancer with Docker-DNS re-resolution
 ```
 
 ## Getting started
@@ -114,8 +117,38 @@ Environment variables (see `.env.example`):
 | --- | --- |
 | `PORT` | Server port (default 3000). |
 | `DATABASE_URL` | PostgreSQL connection string. |
+| `DATABASE_SSL` | `true` for cloud Postgres (Neon/Supabase), `false` for local/Docker Postgres. |
 | `BASE_URL` | Public base URL used to build short links. |
 | `REDIS_URL` | Redis connection string. |
+
+## Running the full distributed stack (Docker Compose)
+
+One command starts the complete topology from the architecture diagram — Nginx, multiple stateless app instances, PostgreSQL and Redis:
+
+```bash
+docker compose up --build -d --scale app=2
+```
+
+| Service | Role |
+| --- | --- |
+| `nginx` | The only public entry point (`http://localhost:8080`); round-robins across app replicas. |
+| `app` | Stateless API instances (scale with `--scale app=N`). Not exposed directly. |
+| `migrate` | One-shot container that applies Drizzle migrations before the app starts. |
+| `postgres` | Source of truth (data persisted in a named volume). |
+| `redis` | Redirect cache, distributed rate limiting, pending click counters. |
+
+### Verifying the distributed behavior
+
+Each app instance identifies itself in `/health` (its container hostname), which makes the scaling properties observable:
+
+1. **Load balancing** — `GET /health` repeatedly through Nginx: responses alternate between instance IDs (e.g. a 50/50 split across 2 replicas).
+2. **High availability** — `docker compose stop app-2` mid-traffic: requests keep succeeding on the surviving instance with no manual intervention; start it back any time.
+3. **Distributed rate limiting** — create URLs until `429`, restart *both* app instances, continue: the counter lives in shared Redis, so the 11th request in the 60s window still gets `429` regardless of which instance serves it.
+4. **Cross-instance analytics** — redirects served by different instances produce one correct total in `GET /api/v1/urls/:shortCode/stats`.
+
+### A note on the Nginx config
+
+Nginx caches DNS results, which would silently break round-robin over scaled replicas. The config uses Docker's embedded DNS resolver (`127.0.0.11`) with a 10s re-resolution TTL, so the upstream set tracks the live replicas.
 
 ## Scripts
 
@@ -130,7 +163,7 @@ Environment variables (see `.env.example`):
 
 ## Roadmap
 
-- [ ] Docker Compose setup (app × N + Nginx + Postgres + Redis) to run the full distributed topology locally
-- [ ] Graceful shutdown (drain in-flight requests, close pools/connections)
+- [x] Docker Compose setup (Nginx + app × N + Postgres + Redis) — `docker compose up --build -d --scale app=2`
+- [x] Graceful shutdown (drain in-flight requests, close pools/connections)
 - [ ] GitHub Actions CI
 - [ ] Per-URL analytics details (clicks over time, referrers)

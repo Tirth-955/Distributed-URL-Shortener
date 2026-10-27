@@ -6,7 +6,7 @@ export const pool = new Pool({
     connectionString: env.DATABASE_URL,
     max: 10,
     connectionTimeoutMillis: 5000,
-    ssl: { rejectUnauthorized: true },
+    ssl: env.DATABASE_SSL ? { rejectUnauthorized: true } : undefined,
 });
 
 export const db = drizzle(pool);

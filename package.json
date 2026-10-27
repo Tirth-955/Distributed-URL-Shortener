@@ -1,7 +1,7 @@
 {
   "name": "distributed-url-shortner",
   "version": "1.0.0",
-  "description": "",
+  "description": "A distributed URL shortener API built with Node.js, Express, PostgreSQL, Drizzle ORM and Redis caching.",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -11,8 +11,14 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "url-shortener",
+    "redis",
+    "postgresql",
+    "express",
+    "typescript"
+  ],
+  "author": "Tirth Chaudhari",
   "license": "ISC",
   "type": "module",
   "dependencies": {

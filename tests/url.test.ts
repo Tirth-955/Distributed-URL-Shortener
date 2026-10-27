@@ -104,6 +104,16 @@ describe("URL Shortener API", () => {
             expect(response.status).toBe(400);
             expect(mocks.createShortUrl).not.toHaveBeenCalled();
         });
+
+        it("returns 400 for malformed JSON request body", async () => {
+            const response = await request(app)
+                .post("/api/v1/urls")
+                .set("Content-Type", "application/json")
+                .send('{"url": "https://www.github.com"');
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid JSON in request body");
+        });
     });
 
     describe("GET /:shortCode", () => {

@@ -15,9 +15,9 @@ app.get("/health", (_req, res) => {
     });
 });
 
-app.get("/:shortCode", redirectUrl);
-
 app.use("/api/v1/urls", urlRoutes);
+
+app.get("/:shortCode", redirectUrl);
 
 app.use(errorHandler);
 

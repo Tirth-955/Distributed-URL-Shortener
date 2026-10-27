@@ -18,7 +18,8 @@ export async function createUrl(req: Request, res: Response, next: NextFunction)
     try {
         const created = await createShortUrl(result.data.url, result.data.expiresInDays);
 
-        const shortUrl = `${env.BASE_URL}/${created.shortCode}`;
+        const baseUrl = env.BASE_URL.replace(/\/+$/, "");
+        const shortUrl = `${baseUrl}/${created.shortCode}`;
 
         return res.status(201).json({
             shortCode: created.shortCode,

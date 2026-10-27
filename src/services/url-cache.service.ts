@@ -48,9 +48,12 @@ export async function cacheUrl(shortCode: string, url: CachedUrl): Promise<void>
         let ttl = CACHE_TTL_SECONDS;
 
         if (url.expiresAt !== null) {
-            const remainingSeconds = Math.floor(
-                (new Date(url.expiresAt).getTime() - Date.now()) / 1000
-            );
+            const expiryTime = new Date(url.expiresAt).getTime();
+            if (Number.isNaN(expiryTime)) {
+                return;
+            }
+
+            const remainingSeconds = Math.floor((expiryTime - Date.now()) / 1000);
 
             if (remainingSeconds <= 0) {
                 return;

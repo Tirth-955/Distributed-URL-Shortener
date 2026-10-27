@@ -6,7 +6,7 @@ const MAX_REQUESTS = 10;
 
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
-if count == 1 then
+if count == 1 or redis.call("TTL", KEYS[1]) == -1 then
     redis.call("EXPIRE", KEYS[1], ARGV[1])
 end
 local ttl = redis.call("TTL", KEYS[1])

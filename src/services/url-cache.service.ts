@@ -43,6 +43,14 @@ export async function getCachedUrl(shortCode: string): Promise<CachedUrl | null>
     }
 }
 
+export async function invalidateCachedUrl(shortCode: string): Promise<void> {
+    try {
+        await redis.del(getCacheKey(shortCode));
+    } catch (error) {
+        console.error("Redis cache invalidation failed:", error);
+    }
+}
+
 export async function cacheUrl(shortCode: string, url: CachedUrl): Promise<void> {
     try {
         let ttl = CACHE_TTL_SECONDS;

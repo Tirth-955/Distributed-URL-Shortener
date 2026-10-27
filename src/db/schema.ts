@@ -1,4 +1,4 @@
-import { pgTable, serial, varchar, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 
 export const urls = pgTable("urls", {
     id: serial("id").primaryKey(),
@@ -7,4 +7,5 @@ export const urls = pgTable("urls", {
     createdAt: timestamp("created_at").defaultNow().notNull(),
     expiresAt: timestamp("expires_at"),
     isActive: boolean("is_active").default(true).notNull(),
+    clickCount: integer("click_count").default(0).notNull(),
 });

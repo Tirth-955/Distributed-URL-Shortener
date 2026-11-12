@@ -221,6 +221,18 @@ describe("URL Shortener API", () => {
             expect(response.body.error).toBe("Short URL has expired");
             expect(mocks.incrementClickCount).not.toHaveBeenCalled();
         });
+
+        it("returns 410 for a deactivated URL", async () => {
+            mocks.getUrlByShortCode.mockResolvedValue({
+                status: "deactivated",
+            });
+
+            const response = await request(app).get("/deactivated1");
+
+            expect(response.status).toBe(410);
+            expect(response.body.error).toBe("Short URL has been deactivated");
+            expect(mocks.incrementClickCount).not.toHaveBeenCalled();
+        });
     });
 
     describe("GET /api/v1/urls/:shortCode/stats", () => {
@@ -239,6 +251,19 @@ describe("URL Shortener API", () => {
                 originalUrl: "https://www.github.com",
                 clicks: 42,
             });
+        });
+
+        it("returns stats for a deactivated link", async () => {
+            mocks.getClickStats.mockResolvedValue({
+                shortCode: "deactiv1",
+                originalUrl: "https://www.github.com",
+                clicks: 7,
+            });
+
+            const response = await request(app).get("/api/v1/urls/deactiv1/stats");
+
+            expect(response.status).toBe(200);
+            expect(response.body.clicks).toBe(7);
         });
 
         it("returns 404 for an unknown short code", async () => {

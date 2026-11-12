@@ -60,7 +60,7 @@ async function collectClickKeys(): Promise<string[]> {
 export async function getClickStats(shortCode: string) {
     const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
 
-    if (!url || !url.isActive) {
+    if (!url) {
         return null;
     }
 

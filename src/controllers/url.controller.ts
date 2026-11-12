@@ -61,6 +61,12 @@ export async function redirectUrl(req: Request, res: Response, next: NextFunctio
             });
         }
 
+        if (result.status === "deactivated") {
+            return res.status(410).json({
+                error: "Short URL has been deactivated",
+            });
+        }
+
         if (result.status === "expired") {
             return res.status(410).json({
                 error: "Short URL has expired",

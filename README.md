@@ -23,7 +23,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. |
 | `POST` | `/api/v1/urls` | Create a short URL. Body: `{ url, expiresInDays?, customCode? }`. |
-| `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired. |
+| `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
 | `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. |
 | `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). |
 

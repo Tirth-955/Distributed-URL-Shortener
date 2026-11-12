@@ -68,7 +68,7 @@ export async function getUrlByShortCode(shortCode: string) {
     const cached = await getCachedUrl(shortCode);
 
     if (cached === "tombstone") {
-        return { status: "not_found" as const };
+        return { status: "deactivated" as const };
     }
 
     if (cached) {
@@ -84,8 +84,12 @@ export async function getUrlByShortCode(shortCode: string) {
 
     const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
 
-    if (!url || !url.isActive) {
+    if (!url) {
         return { status: "not_found" as const };
+    }
+
+    if (!url.isActive) {
+        return { status: "deactivated" as const };
     }
 
     if (url.expiresAt && url.expiresAt.getTime() <= Date.now()) {

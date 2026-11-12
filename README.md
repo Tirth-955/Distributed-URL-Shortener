@@ -11,7 +11,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Short URL creation** | Random, collision-safe short codes generated with `crypto.randomBytes`, with automatic retry on the rare unique-constraint collision. |
 | **Custom aliases** | Optionally pick your own short code (4–12 chars: letters, numbers, `-`, `_`). Returns `409 Conflict` if it is already taken or reserved. |
 | **Fast redirects** | Cache-aside pattern: redirects are served from Redis when available, falling back to PostgreSQL (which then repopulates the cache). |
-| **Click analytics** | Every redirect atomically increments a Redis counter (`INCR`) without adding latency; a background job flushes counters into PostgreSQL, so `GET /stats` reports lifetime clicks that survive a Redis restart. |
+| **Click analytics** | Every redirect atomically increments a Redis counter (`INCR`) without adding latency; a background job flushes counters into PostgreSQL, so `GET /stats` reports lifetime clicks that survive a Redis restart. A failed flush re-credits the Redis counter, so clicks are not dropped when Postgres is briefly unavailable. |
 | **URL expiration** | Optional expiry (1–365 days). Expired links return `410 Gone`; the cache TTL is clamped so it never outlives the link. |
 | **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
 | **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |

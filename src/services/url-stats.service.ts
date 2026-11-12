@@ -14,26 +14,53 @@ export function incrementClickCount(shortCode: string): void {
 }
 
 export async function flushClickCounts(): Promise<void> {
+    let keys: string[];
+
     try {
-        const keys = await collectClickKeys();
-
-        for (const key of keys) {
-            const pending = await redis.getdel(key);
-            const clicks = Number(pending ?? 0);
-
-            if (!Number.isInteger(clicks) || clicks <= 0) {
-                continue;
-            }
-
-            const shortCode = key.slice(CLICK_COUNT_PREFIX.length);
-
-            await db
-                .update(urls)
-                .set({ clickCount: sql`${urls.clickCount} + ${clicks}` })
-                .where(eq(urls.shortCode, shortCode));
-        }
+        keys = await collectClickKeys();
     } catch (error) {
         console.error("Click count flush failed:", error);
+        return;
+    }
+
+    for (const key of keys) {
+        await flushClickKey(key);
+    }
+}
+
+async function flushClickKey(key: string): Promise<void> {
+    const pending = await redis.getdel(key).catch((error: Error) => {
+        console.error("Click count flush failed:", error);
+        return null;
+    });
+
+    const clicks = Number(pending ?? 0);
+
+    if (!Number.isInteger(clicks) || clicks <= 0) {
+        return;
+    }
+
+    const shortCode = key.slice(CLICK_COUNT_PREFIX.length);
+
+    try {
+        const updated = await db
+            .update(urls)
+            .set({ clickCount: sql`${urls.clickCount} + ${clicks}` })
+            .where(eq(urls.shortCode, shortCode))
+            .returning({ id: urls.id });
+
+        if (updated.length === 0) {
+            console.warn(`Click count flushed for unknown short code "${shortCode}"`);
+        }
+    } catch (error) {
+        console.error(`Click count write failed for "${shortCode}", re-crediting Redis:`, error);
+
+        await redis.incrby(key, clicks).catch((recreditError: Error) => {
+            console.error(
+                `Click count re-credit failed for "${shortCode}", clicks may be lost:`,
+                recreditError
+            );
+        });
     }
 }
 

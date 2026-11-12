@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
+
 import type { Request, Response, NextFunction } from "express";
 import { redis } from "../config/redis.js";
 
@@ -13,9 +16,31 @@ local ttl = redis.call("TTL", KEYS[1])
 return {count, ttl}
 `;
 
+export function getClientIp(req: Request): string {
+    const forwardedFor = req.headers["x-forwarded-for"];
+
+    if (typeof forwardedFor === "string") {
+        const lastEntry = forwardedFor.split(",").at(-1)?.trim() ?? "";
+
+        if (isIP(lastEntry) !== 0) {
+            return normalizeIp(lastEntry);
+        }
+    }
+
+    if (req.ip && isIP(req.ip) !== 0) {
+        return normalizeIp(req.ip);
+    }
+
+    return randomUUID();
+}
+
+function normalizeIp(ip: string): string {
+    return ip.startsWith("::ffff:") ? ip.slice("::ffff:".length) : ip;
+}
+
 export async function rateLimit(req: Request, res: Response, next: NextFunction) {
     try {
-        const ip = req.ip ?? "unknown";
+        const ip = getClientIp(req);
         const key = `rate-limit:create-url:${ip}`;
 
         const result = (await redis.eval(RATE_LIMIT_SCRIPT, 1, key, WINDOW_SECONDS)) as [

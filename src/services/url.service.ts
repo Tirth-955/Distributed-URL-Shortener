@@ -4,7 +4,12 @@ import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
 import { ShortCodeTakenError } from "../utils/errors.js";
 import { generateShortCode } from "../utils/generate-short-code.js";
-import { cacheUrlIfAbsent, getCachedUrl, tombstoneCachedUrl } from "./url-cache.service.js";
+import {
+    cacheUrlIfAbsent,
+    getCachedUrl,
+    markUrlExpired,
+    tombstoneCachedUrl,
+} from "./url-cache.service.js";
 
 const RESERVED_SHORT_CODES = new Set(["health", "api", "urls"]);
 const RANDOM_CODE_ATTEMPTS = 3;
@@ -71,8 +76,14 @@ export async function getUrlByShortCode(shortCode: string) {
         return { status: "deactivated" as const };
     }
 
+    if (cached === "expired") {
+        return { status: "expired" as const };
+    }
+
     if (cached) {
         if (cached.expiresAt !== null && new Date(cached.expiresAt).getTime() <= Date.now()) {
+            await markUrlExpired(shortCode);
+
             return { status: "expired" as const };
         }
 
@@ -93,6 +104,8 @@ export async function getUrlByShortCode(shortCode: string) {
     }
 
     if (url.expiresAt && url.expiresAt.getTime() <= Date.now()) {
+        await markUrlExpired(shortCode);
+
         return { status: "expired" as const };
     }
 

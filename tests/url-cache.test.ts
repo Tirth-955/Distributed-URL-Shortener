@@ -13,6 +13,7 @@ vi.mock("../src/config/redis.js", () => ({
 import {
     cacheUrlIfAbsent,
     getCachedUrl,
+    markUrlExpired,
     tombstoneCachedUrl,
 } from "../src/services/url-cache.service.js";
 
@@ -21,6 +22,7 @@ const ACTIVE_ENTRY = JSON.stringify({
     expiresAt: null,
 });
 const TOMBSTONE = JSON.stringify({ tombstone: true });
+const EXPIRED_MARKER = JSON.stringify({ expired: true });
 
 describe("URL cache service", () => {
     beforeEach(() => {
@@ -51,6 +53,12 @@ describe("URL cache service", () => {
             redisMock.get.mockResolvedValue(TOMBSTONE);
 
             expect(await getCachedUrl("abc12345")).toBe("tombstone");
+        });
+
+        it("returns an expired sentinel for an expired marker", async () => {
+            redisMock.get.mockResolvedValue(EXPIRED_MARKER);
+
+            expect(await getCachedUrl("abc12345")).toBe("expired");
         });
 
         it("returns null for malformed JSON", async () => {
@@ -113,11 +121,21 @@ describe("URL cache service", () => {
         });
     });
 
+    describe("markUrlExpired", () => {
+        it("overwrites the entry with an expired marker that outlives the cache TTL", async () => {
+            await markUrlExpired("abc12345");
+
+            expect(redisMock.set).toHaveBeenCalledWith("url:abc12345", EXPIRED_MARKER, "EX", 120);
+        });
+    });
+
     it("does not throw when Redis fails", async () => {
         vi.spyOn(console, "error").mockImplementation(() => {});
         redisMock.set.mockRejectedValue(new Error("Redis is down"));
 
         await expect(tombstoneCachedUrl("abc12345")).resolves.toBeUndefined();
+
+        await expect(markUrlExpired("abc12345")).resolves.toBeUndefined();
 
         await expect(
             cacheUrlIfAbsent("abc12345", {

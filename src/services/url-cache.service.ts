@@ -1,7 +1,7 @@
 import { redis } from "../config/redis.js";
 
 const CACHE_TTL_SECONDS = 60;
-const TOMBSTONE_TTL_SECONDS = CACHE_TTL_SECONDS * 2;
+const MARKER_TTL_SECONDS = CACHE_TTL_SECONDS * 2;
 const URL_CACHE_PREFIX = "url:";
 
 export type CachedUrl = {
@@ -9,19 +9,14 @@ export type CachedUrl = {
     expiresAt: string | null;
 };
 
-export type CacheLookupResult = CachedUrl | "tombstone" | null;
+export type CacheLookupResult = CachedUrl | "tombstone" | "expired" | null;
 
 function getCacheKey(shortCode: string): string {
     return `${URL_CACHE_PREFIX}${shortCode}`;
 }
 
-function isTombstone(value: unknown): boolean {
-    return (
-        typeof value === "object" &&
-        value !== null &&
-        "tombstone" in value &&
-        value.tombstone === true
-    );
+function isMarker(value: Record<string, unknown>, marker: "tombstone" | "expired"): boolean {
+    return value[marker] === true;
 }
 
 export async function getCachedUrl(shortCode: string): Promise<CacheLookupResult> {
@@ -34,8 +29,16 @@ export async function getCachedUrl(shortCode: string): Promise<CacheLookupResult
 
         const parsed: unknown = JSON.parse(cached);
 
-        if (isTombstone(parsed)) {
-            return "tombstone";
+        if (typeof parsed === "object" && parsed !== null) {
+            const record = parsed as Record<string, unknown>;
+
+            if (isMarker(record, "tombstone")) {
+                return "tombstone";
+            }
+
+            if (isMarker(record, "expired")) {
+                return "expired";
+            }
         }
 
         if (
@@ -90,9 +93,22 @@ export async function tombstoneCachedUrl(shortCode: string): Promise<void> {
             getCacheKey(shortCode),
             JSON.stringify({ tombstone: true }),
             "EX",
-            TOMBSTONE_TTL_SECONDS
+            MARKER_TTL_SECONDS
         );
     } catch (error) {
         console.error("Redis tombstone write failed:", error);
+    }
+}
+
+export async function markUrlExpired(shortCode: string): Promise<void> {
+    try {
+        await redis.set(
+            getCacheKey(shortCode),
+            JSON.stringify({ expired: true }),
+            "EX",
+            MARKER_TTL_SECONDS
+        );
+    } catch (error) {
+        console.error("Redis expired-marker write failed:", error);
     }
 }

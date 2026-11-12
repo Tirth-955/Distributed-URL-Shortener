@@ -4,7 +4,7 @@ import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
 import { ShortCodeTakenError } from "../utils/errors.js";
 import { generateShortCode } from "../utils/generate-short-code.js";
-import { cacheUrl, getCachedUrl, invalidateCachedUrl } from "./url-cache.service.js";
+import { cacheUrlIfAbsent, getCachedUrl, tombstoneCachedUrl } from "./url-cache.service.js";
 
 const RESERVED_SHORT_CODES = new Set(["health", "api", "urls"]);
 const RANDOM_CODE_ATTEMPTS = 3;
@@ -67,6 +67,10 @@ export async function createShortUrl(input: CreateShortUrlInput) {
 export async function getUrlByShortCode(shortCode: string) {
     const cached = await getCachedUrl(shortCode);
 
+    if (cached === "tombstone") {
+        return { status: "not_found" as const };
+    }
+
     if (cached) {
         if (cached.expiresAt !== null && new Date(cached.expiresAt).getTime() <= Date.now()) {
             return { status: "expired" as const };
@@ -88,7 +92,7 @@ export async function getUrlByShortCode(shortCode: string) {
         return { status: "expired" as const };
     }
 
-    await cacheUrl(shortCode, {
+    await cacheUrlIfAbsent(shortCode, {
         originalUrl: url.originalUrl,
         expiresAt: url.expiresAt?.toISOString() ?? null,
     });
@@ -110,8 +114,7 @@ export async function deactivateShortUrl(shortCode: string): Promise<boolean> {
         return false;
     }
 
-    // Evict the cached redirect so the deactivated URL is not served stale.
-    await invalidateCachedUrl(shortCode);
+    await tombstoneCachedUrl(shortCode);
 
     return true;
 }

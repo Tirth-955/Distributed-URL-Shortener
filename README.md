@@ -13,7 +13,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Fast redirects** | Cache-aside pattern: redirects are served from Redis when available, falling back to PostgreSQL (which then repopulates the cache). |
 | **Click analytics** | Every redirect atomically increments a Redis counter (`INCR`) without adding latency; a background job flushes counters into PostgreSQL, so `GET /stats` reports lifetime clicks that survive a Redis restart. |
 | **URL expiration** | Optional expiry (1–365 days). Expired links return `410 Gone`; the cache TTL is clamped so it never outlives the link. |
-| **Deactivation** | `DELETE` deactivates a link **and evicts its Redis cache entry**, so a disabled link is never served stale. |
+| **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
 | **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |
 | **Validated inputs** | Zod schemas for env config and request bodies; only `http`/`https` URLs are accepted. |
 
@@ -72,7 +72,7 @@ flowchart LR
 ### Design decisions
 
 - **Collision handling:** short codes are 8-char random values; a unique index is the guard, and an insert that violates it simply retries with a new code (up to 3 attempts). Correctness comes from the database, not from hoping.
-- **Cache invalidation:** codes are immutable, so cached entries never go stale — except on deactivation, which explicitly deletes the cache key before responding.
+- **Cache invalidation:** codes are immutable, so cached entries never go stale — except on deactivation, which writes a tombstone over the cache key instead of deleting it. Cache population uses `SET NX`, so a reader that already read the active row from Postgres cannot overwrite the tombstone and briefly resurrect the link.
 - **Fail-open Redis:** if Redis is briefly unavailable, redirects and rate limiting degrade to PostgreSQL / unlimited instead of failing requests — the cache is an optimization, not a dependency.
 - **Atomic rate limiting:** `INCR` and `EXPIRE` happen inside one Lua script, so the window is correct even under concurrent requests or multiple app instances sharing Redis.
 

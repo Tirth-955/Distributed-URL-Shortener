@@ -1,6 +1,7 @@
 import { redis } from "../config/redis.js";
 
 const CACHE_TTL_SECONDS = 60;
+const TOMBSTONE_TTL_SECONDS = CACHE_TTL_SECONDS * 2;
 const URL_CACHE_PREFIX = "url:";
 
 export type CachedUrl = {
@@ -8,11 +9,22 @@ export type CachedUrl = {
     expiresAt: string | null;
 };
 
+export type CacheLookupResult = CachedUrl | "tombstone" | null;
+
 function getCacheKey(shortCode: string): string {
     return `${URL_CACHE_PREFIX}${shortCode}`;
 }
 
-export async function getCachedUrl(shortCode: string): Promise<CachedUrl | null> {
+function isTombstone(value: unknown): boolean {
+    return (
+        typeof value === "object" &&
+        value !== null &&
+        "tombstone" in value &&
+        value.tombstone === true
+    );
+}
+
+export async function getCachedUrl(shortCode: string): Promise<CacheLookupResult> {
     try {
         const cached = await redis.get(getCacheKey(shortCode));
 
@@ -21,6 +33,10 @@ export async function getCachedUrl(shortCode: string): Promise<CachedUrl | null>
         }
 
         const parsed: unknown = JSON.parse(cached);
+
+        if (isTombstone(parsed)) {
+            return "tombstone";
+        }
 
         if (
             typeof parsed !== "object" ||
@@ -43,15 +59,7 @@ export async function getCachedUrl(shortCode: string): Promise<CachedUrl | null>
     }
 }
 
-export async function invalidateCachedUrl(shortCode: string): Promise<void> {
-    try {
-        await redis.del(getCacheKey(shortCode));
-    } catch (error) {
-        console.error("Redis cache invalidation failed:", error);
-    }
-}
-
-export async function cacheUrl(shortCode: string, url: CachedUrl): Promise<void> {
+export async function cacheUrlIfAbsent(shortCode: string, url: CachedUrl): Promise<void> {
     try {
         let ttl = CACHE_TTL_SECONDS;
 
@@ -70,8 +78,21 @@ export async function cacheUrl(shortCode: string, url: CachedUrl): Promise<void>
             ttl = Math.min(ttl, remainingSeconds);
         }
 
-        await redis.set(getCacheKey(shortCode), JSON.stringify(url), "EX", ttl);
+        await redis.set(getCacheKey(shortCode), JSON.stringify(url), "EX", ttl, "NX");
     } catch (error) {
         console.error("Redis cache write failed:", error);
+    }
+}
+
+export async function tombstoneCachedUrl(shortCode: string): Promise<void> {
+    try {
+        await redis.set(
+            getCacheKey(shortCode),
+            JSON.stringify({ tombstone: true }),
+            "EX",
+            TOMBSTONE_TTL_SECONDS
+        );
+    } catch (error) {
+        console.error("Redis tombstone write failed:", error);
     }
 }

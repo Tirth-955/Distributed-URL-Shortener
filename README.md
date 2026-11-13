@@ -26,6 +26,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | `POST` | `/api/v1/urls` | Create a short URL. Requires `X-API-Key`. Body: `{ url, expiresInDays?, customCode? }`. |
 | `POST` | `/api/v1/keys` | Issue a management API key. Returned once, stored as a SHA-256 hash. |
 | `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
+| `GET` | `/api/v1/urls` | List the authenticated key's URLs. Cursor pagination: `?limit=`, `?cursor=`. Requires `X-API-Key`. |
 | `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. Requires `X-API-Key`. |
 | `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). Requires `X-API-Key`. |
 
@@ -54,6 +55,9 @@ curl -i http://localhost:3000/gh-trend
 
 # Click stats (authenticated)
 curl -H "X-API-Key: usk_xxxxxxxxxxxx..." http://localhost:3000/api/v1/urls/gh-trend/stats
+
+# List your URLs (authenticated, cursor pagination)
+curl -H "X-API-Key: usk_xxxxxxxxxxxx..." "http://localhost:3000/api/v1/urls?limit=10"
 ```
 
 ## Architecture

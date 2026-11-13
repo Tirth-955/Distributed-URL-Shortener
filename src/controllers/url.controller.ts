@@ -1,10 +1,11 @@
 import type { Request, Response, NextFunction } from "express";
 
 import { env } from "../config/env.js";
-import { createUrlSchema } from "../validators/url.validator.js";
+import { createUrlSchema, listUrlsQuerySchema } from "../validators/url.validator.js";
 import { ShortCodeTakenError } from "../utils/errors.js";
-import { createShortUrl, deactivateShortUrl, getUrlByShortCode } from "../services/url.service.js";
+import { createShortUrl, deactivateShortUrl, getUrlByShortCode, listUrlsByOwner } from "../services/url.service.js";
 import { getClickStats, incrementClickCount } from "../services/url-stats.service.js";
+import { decodeCursor } from "../utils/cursor.js";
 
 export async function createUrl(req: Request, res: Response, next: NextFunction) {
     const ownerId = req.ownerId;
@@ -117,6 +118,51 @@ export async function getClickStatsHandler(req: Request, res: Response, next: Ne
         }
 
         return res.status(200).json(stats);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function listUrls(req: Request, res: Response, next: NextFunction) {
+    const ownerId = req.ownerId;
+
+    if (ownerId === undefined) {
+        return res.status(401).json({
+            error: "Missing API key",
+        });
+    }
+
+    const query = listUrlsQuerySchema.safeParse(req.query);
+
+    if (!query.success) {
+        return res.status(400).json({
+            error: "Invalid query parameters",
+            details: query.error.issues,
+        });
+    }
+
+    let cursor: { createdAt: Date; id: number } | null = null;
+
+    if (query.data.cursor) {
+        cursor = decodeCursor(query.data.cursor);
+
+        if (!cursor) {
+            return res.status(400).json({
+                error: "Invalid cursor",
+            });
+        }
+    }
+
+    try {
+        const result = await listUrlsByOwner(ownerId, {
+            limit: query.data.limit,
+            cursor,
+        });
+
+        return res.status(200).json({
+            items: result.items,
+            nextCursor: result.nextCursor,
+        });
     } catch (error) {
         next(error);
     }

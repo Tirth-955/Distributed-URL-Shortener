@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 
 import { ShortCodeTakenError } from "../src/utils/errors.js";
+import { encodeCursor } from "../src/utils/cursor.js";
 
 const mocks = vi.hoisted(() => ({
     createShortUrl: vi.fn(),
     getUrlByShortCode: vi.fn(),
     deactivateShortUrl: vi.fn(),
+    listUrlsByOwner: vi.fn(),
     incrementClickCount: vi.fn(),
     getClickStats: vi.fn(),
 }));
@@ -22,6 +24,7 @@ vi.mock("../src/services/url.service.js", () => ({
     createShortUrl: mocks.createShortUrl,
     getUrlByShortCode: mocks.getUrlByShortCode,
     deactivateShortUrl: mocks.deactivateShortUrl,
+    listUrlsByOwner: mocks.listUrlsByOwner,
 }));
 
 vi.mock("../src/services/url-stats.service.js", () => ({
@@ -293,6 +296,60 @@ describe("URL Shortener API", () => {
 
             expect(response.status).toBe(404);
             expect(response.body).toEqual({ error: "Short URL not found" });
+        });
+    });
+
+    describe("GET /api/v1/urls", () => {
+        it("lists the owner's URLs with a next cursor", async () => {
+            const items = [
+                {
+                    shortCode: "abc12345",
+                    originalUrl: "https://www.github.com",
+                    createdAt: new Date("2026-11-01T00:00:00.000Z"),
+                    expiresAt: null,
+                    isActive: true,
+                    clickCount: 5,
+                },
+            ];
+            mocks.listUrlsByOwner.mockResolvedValue({ items, nextCursor: "tok" });
+
+            const response = await request(app).get("/api/v1/urls").query({ limit: 1 });
+
+            expect(response.status).toBe(200);
+            expect(response.body.nextCursor).toBe("tok");
+            expect(response.body.items[0]).toMatchObject({
+                shortCode: "abc12345",
+                clickCount: 5,
+            });
+            expect(mocks.listUrlsByOwner).toHaveBeenCalledWith(1, { limit: 1, cursor: null });
+        });
+
+        it("decodes a cursor into the service options", async () => {
+            mocks.listUrlsByOwner.mockResolvedValue({ items: [], nextCursor: null });
+
+            const cursor = encodeCursor(new Date("2026-11-01T00:00:00.000Z"), 9);
+
+            await request(app).get("/api/v1/urls").query({ cursor });
+
+            expect(mocks.listUrlsByOwner).toHaveBeenCalledWith(1, {
+                limit: 20,
+                cursor: { createdAt: new Date("2026-11-01T00:00:00.000Z"), id: 9 },
+            });
+        });
+
+        it("returns 400 for an out-of-range limit", async () => {
+            const response = await request(app).get("/api/v1/urls").query({ limit: 0 });
+
+            expect(response.status).toBe(400);
+            expect(mocks.listUrlsByOwner).not.toHaveBeenCalled();
+        });
+
+        it("returns 400 for an invalid cursor", async () => {
+            const response = await request(app).get("/api/v1/urls").query({ cursor: "garbage" });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe("Invalid cursor");
+            expect(mocks.listUrlsByOwner).not.toHaveBeenCalled();
         });
     });
 

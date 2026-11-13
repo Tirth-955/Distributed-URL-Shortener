@@ -31,3 +31,8 @@ export const createUrlSchema = z.object({
 });
 
 export type CreateUrlInput = z.infer<typeof createUrlSchema>;
+
+export const listUrlsQuerySchema = z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    cursor: z.string().min(1).optional(),
+});

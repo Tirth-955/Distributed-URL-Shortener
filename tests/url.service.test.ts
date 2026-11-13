@@ -20,7 +20,8 @@ vi.mock("../src/services/url-cache.service.js", () => cacheMock);
 
 vi.mock("../src/db/index.js", () => ({ db: dbMock }));
 
-import { createShortUrl, deactivateShortUrl, getUrlByShortCode } from "../src/services/url.service.js";
+import { createShortUrl, deactivateShortUrl, getUrlByShortCode, listUrlsByOwner } from "../src/services/url.service.js";
+import { decodeCursor } from "../src/utils/cursor.js";
 
 function mockSelectRow(row: unknown) {
     dbMock.select.mockReturnValue({
@@ -203,5 +204,68 @@ describe("deactivateShortUrl", () => {
 
         expect(await deactivateShortUrl("abc12345", 99)).toBe(false);
         expect(cacheMock.tombstoneCachedUrl).not.toHaveBeenCalled();
+    });
+});
+
+describe("listUrlsByOwner", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        cacheMock.getCachedUrl.mockResolvedValue(null);
+    });
+
+    function ownRow(id: number) {
+        return {
+            id,
+            shortCode: `code${id}`,
+            originalUrl: "https://www.github.com",
+            createdAt: new Date(Date.UTC(2026, 0, id)),
+            expiresAt: null,
+            isActive: true,
+            clickCount: id,
+        };
+    }
+
+    function mockListRows(rows: unknown[]) {
+        dbMock.select.mockReturnValue({
+            from: () => ({
+                where: () => ({
+                    orderBy: () => ({
+                        limit: async () => rows,
+                    }),
+                }),
+            }),
+        });
+    }
+
+    it("returns items and no cursor when there is no next page", async () => {
+        mockListRows([ownRow(2), ownRow(1)]);
+
+        const result = await listUrlsByOwner(7, { limit: 20 });
+
+        expect(result.items).toHaveLength(2);
+        expect(result.nextCursor).toBeNull();
+    });
+
+    it("drops the extra row and encodes a cursor when another page exists", async () => {
+        mockListRows([ownRow(4), ownRow(3), ownRow(2)]);
+
+        const result = await listUrlsByOwner(7, { limit: 2 });
+
+        expect(result.items).toHaveLength(2);
+        expect(result.items[0].shortCode).toBe("code4");
+
+        const decoded = decodeCursor(result.nextCursor!);
+
+        expect(decoded?.id).toBe(3);
+        expect(decoded?.createdAt.toISOString()).toBe("2026-01-03T00:00:00.000Z");
+    });
+
+    it("returns an empty page for an owner with no links", async () => {
+        mockListRows([]);
+
+        const result = await listUrlsByOwner(99, { limit: 20 });
+
+        expect(result.items).toEqual([]);
+        expect(result.nextCursor).toBeNull();
     });
 });

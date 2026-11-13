@@ -6,11 +6,13 @@ import {
     createUrl,
     deactivateUrl,
     getClickStatsHandler,
+    listUrls,
 } from "../controllers/url.controller.js";
 
 const router = Router();
 
 router.post("/", rateLimit, requireApiKey, createUrl);
+router.get("/", requireApiKey, listUrls);
 router.get("/:shortCode/stats", requireApiKey, getClickStatsHandler);
 router.delete("/:shortCode", requireApiKey, deactivateUrl);
 

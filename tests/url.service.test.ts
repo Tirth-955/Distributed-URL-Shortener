@@ -20,7 +20,7 @@ vi.mock("../src/services/url-cache.service.js", () => cacheMock);
 
 vi.mock("../src/db/index.js", () => ({ db: dbMock }));
 
-import { getUrlByShortCode } from "../src/services/url.service.js";
+import { createShortUrl, deactivateShortUrl, getUrlByShortCode } from "../src/services/url.service.js";
 
 function mockSelectRow(row: unknown) {
     dbMock.select.mockReturnValue({
@@ -120,5 +120,88 @@ describe("getUrlByShortCode", () => {
 
         expect(await getUrlByShortCode("unknown1")).toEqual({ status: "not_found" });
         expect(cacheMock.cacheUrlIfAbsent).not.toHaveBeenCalled();
+    });
+});
+
+describe("createShortUrl", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        cacheMock.getCachedUrl.mockResolvedValue(null);
+    });
+
+    it("stamps the owner id on creation with a custom code", async () => {
+        const inserted: Record<string, unknown>[] = [];
+        dbMock.insert.mockReturnValue({
+            values: async (values: Record<string, unknown>) => {
+                inserted.push(values);
+            },
+        });
+
+        const created = await createShortUrl({
+            ownerId: 7,
+            originalUrl: "https://www.github.com",
+            customCode: "my-github",
+        });
+
+        expect(created).toEqual({
+            shortCode: "my-github",
+            originalUrl: "https://www.github.com",
+            expiresAt: null,
+        });
+        expect(inserted[0]).toMatchObject({
+            ownerId: 7,
+            shortCode: "my-github",
+            originalUrl: "https://www.github.com",
+        });
+    });
+
+    it("stamps the owner id on creation with a random code", async () => {
+        const inserted: Record<string, unknown>[] = [];
+        dbMock.insert.mockReturnValue({
+            values: async (values: Record<string, unknown>) => {
+                inserted.push(values);
+            },
+        });
+
+        const created = await createShortUrl({
+            ownerId: 7,
+            originalUrl: "https://www.github.com",
+        });
+
+        expect(created.shortCode).toMatch(/^[A-Za-z0-9_-]{8}$/);
+        expect(inserted[0]).toMatchObject({ ownerId: 7 });
+    });
+});
+
+describe("deactivateShortUrl", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        cacheMock.getCachedUrl.mockResolvedValue(null);
+    });
+
+    it("deactivates and tombstones the cache for the owner", async () => {
+        dbMock.update.mockReturnValue({
+            set: () => ({
+                where: () => ({
+                    returning: async () => [{ id: 1 }],
+                }),
+            }),
+        });
+
+        expect(await deactivateShortUrl("abc12345", 7)).toBe(true);
+        expect(cacheMock.tombstoneCachedUrl).toHaveBeenCalledWith("abc12345");
+    });
+
+    it("does nothing when the link belongs to another owner", async () => {
+        dbMock.update.mockReturnValue({
+            set: () => ({
+                where: () => ({
+                    returning: async () => [],
+                }),
+            }),
+        });
+
+        expect(await deactivateShortUrl("abc12345", 99)).toBe(false);
+        expect(cacheMock.tombstoneCachedUrl).not.toHaveBeenCalled();
     });
 });

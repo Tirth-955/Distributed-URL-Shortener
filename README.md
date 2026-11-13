@@ -16,25 +16,29 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
 | **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |
 | **Validated inputs** | Zod schemas for env config and request bodies; only `http`/`https` URLs are accepted. |
-| **API key issuance** | `POST /api/v1/keys` issues a management key (`usk_…`) that is shown once and stored only as a SHA-256 hash; issuance is IP rate-limited. |
+| **API key issuance** | `POST /api/v1/keys` issues a management key (`usk_…`) that is shown once and stored only as a SHA-256 hash. Management endpoints require it via `X-API-Key`, and links are owner-scoped: another owner's link returns `404`, never `403`. |
 
 ## API
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. |
-| `POST` | `/api/v1/urls` | Create a short URL. Body: `{ url, expiresInDays?, customCode? }`. |
+| `POST` | `/api/v1/urls` | Create a short URL. Requires `X-API-Key`. Body: `{ url, expiresInDays?, customCode? }`. |
 | `POST` | `/api/v1/keys` | Issue a management API key. Returned once, stored as a SHA-256 hash. |
 | `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
-| `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. |
-| `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). |
+| `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. Requires `X-API-Key`. |
+| `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). Requires `X-API-Key`. |
 
 ### Examples
 
 ```bash
-# Create a short URL
+# Issue a management API key (shown once - store it)
+curl -X POST http://localhost:3000/api/v1/keys
+
+# Create a short URL (authenticated)
 curl -X POST http://localhost:3000/api/v1/urls \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: usk_xxxxxxxxxxxx..." \
   -d '{ "url": "https://github.com/trending", "expiresInDays": 7, "customCode": "gh-trend" }'
 
 # Response
@@ -45,11 +49,11 @@ curl -X POST http://localhost:3000/api/v1/urls \
   "expiresAt": "2026-11-03T00:00:00.000Z"
 }
 
-# Redirect
+# Redirect (public)
 curl -i http://localhost:3000/gh-trend
 
-# Click stats
-curl http://localhost:3000/api/v1/urls/gh-trend/stats
+# Click stats (authenticated)
+curl -H "X-API-Key: usk_xxxxxxxxxxxx..." http://localhost:3000/api/v1/urls/gh-trend/stats
 ```
 
 ## Architecture

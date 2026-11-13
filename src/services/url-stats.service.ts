@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { redis } from "../config/redis.js";
 import { db } from "../db/index.js";
@@ -84,8 +84,12 @@ async function collectClickKeys(): Promise<string[]> {
     return keys;
 }
 
-export async function getClickStats(shortCode: string) {
-    const [url] = await db.select().from(urls).where(eq(urls.shortCode, shortCode)).limit(1);
+export async function getClickStats(shortCode: string, ownerId: number) {
+    const [url] = await db
+        .select()
+        .from(urls)
+        .where(and(eq(urls.shortCode, shortCode), eq(urls.ownerId, ownerId)))
+        .limit(1);
 
     if (!url) {
         return null;

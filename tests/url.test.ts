@@ -35,6 +35,14 @@ vi.mock("../src/middleware/rate-limit.middleware.js", () => ({
     createKeyRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
+// Authenticated as owner 1 for every endpoint test.
+vi.mock("../src/middleware/auth.middleware.js", () => ({
+    requireApiKey: (req: { ownerId?: number } & Record<string, unknown>, _res: unknown, next: () => void) => {
+        req.ownerId = 1;
+        next();
+    },
+}));
+
 import app from "../src/app.js";
 
 describe("URL Shortener API", () => {
@@ -70,6 +78,7 @@ describe("URL Shortener API", () => {
                 expiresAt: null,
             });
             expect(mocks.createShortUrl).toHaveBeenCalledWith({
+                ownerId: 1,
                 originalUrl: "https://www.github.com",
                 expiresInDays: undefined,
                 customCode: undefined,
@@ -93,6 +102,7 @@ describe("URL Shortener API", () => {
             expect(response.status).toBe(201);
             expect(response.body.expiresAt).toBe(expiresAt.toISOString());
             expect(mocks.createShortUrl).toHaveBeenCalledWith({
+                ownerId: 1,
                 originalUrl: "https://www.github.com",
                 expiresInDays: 7,
                 customCode: undefined,
@@ -114,6 +124,7 @@ describe("URL Shortener API", () => {
             expect(response.status).toBe(201);
             expect(response.body.shortCode).toBe("my-github");
             expect(mocks.createShortUrl).toHaveBeenCalledWith({
+                ownerId: 1,
                 originalUrl: "https://www.github.com",
                 expiresInDays: undefined,
                 customCode: "my-github",
@@ -283,7 +294,7 @@ describe("URL Shortener API", () => {
             const response = await request(app).delete("/api/v1/urls/abc12345");
 
             expect(response.status).toBe(204);
-            expect(mocks.deactivateShortUrl).toHaveBeenCalledWith("abc12345");
+            expect(mocks.deactivateShortUrl).toHaveBeenCalledWith("abc12345", 1);
         });
 
         it("returns 404 for an unknown short code", async () => {

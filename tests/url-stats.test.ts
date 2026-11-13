@@ -89,6 +89,12 @@ describe("getClickStats", () => {
         expect(await getClickStats("unknown1", 42)).toBeNull();
     });
 
+    it("returns null for a link owned by another owner", async () => {
+        mockSelectRow(undefined);
+
+        expect(await getClickStats("abc12345", 999)).toBeNull();
+    });
+
     it("treats a missing Redis counter as zero", async () => {
         mockSelectRow({ ...DEACTIVATED_URL, isActive: true, clickCount: 0 });
         redisMock.get.mockResolvedValue(null);

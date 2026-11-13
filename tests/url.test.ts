@@ -285,6 +285,15 @@ describe("URL Shortener API", () => {
 
             expect(response.status).toBe(404);
         });
+
+        it("returns 404 for another owner's link, indistinguishable from unknown", async () => {
+            mocks.getClickStats.mockResolvedValue(null);
+
+            const response = await request(app).get("/api/v1/urls/notmine1/stats");
+
+            expect(response.status).toBe(404);
+            expect(response.body).toEqual({ error: "Short URL not found" });
+        });
     });
 
     describe("DELETE /api/v1/urls/:shortCode", () => {
@@ -303,6 +312,15 @@ describe("URL Shortener API", () => {
             const response = await request(app).delete("/api/v1/urls/unknown123");
 
             expect(response.status).toBe(404);
+        });
+
+        it("returns 404 for another owner's link, indistinguishable from unknown", async () => {
+            mocks.deactivateShortUrl.mockResolvedValue(false);
+
+            const response = await request(app).delete("/api/v1/urls/notmine1");
+
+            expect(response.status).toBe(404);
+            expect(response.body).toEqual({ error: "Short URL not found" });
         });
     });
 });

@@ -5,7 +5,6 @@ import type { Request, Response, NextFunction } from "express";
 import { redis } from "../config/redis.js";
 
 const WINDOW_SECONDS = 60;
-const DEFAULT_LIMIT = 10;
 
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
@@ -42,13 +41,18 @@ type RateLimiterOptions = {
     bucket: string;
     limit: number;
     windowSeconds?: number;
+    getKey?: (req: Request) => string;
 };
 
-export function createRateLimiter({ bucket, limit, windowSeconds = WINDOW_SECONDS }: RateLimiterOptions) {
+export function createRateLimiter({
+    bucket,
+    limit,
+    windowSeconds = WINDOW_SECONDS,
+    getKey = getClientIp,
+}: RateLimiterOptions) {
     return async function rateLimiter(req: Request, res: Response, next: NextFunction) {
         try {
-            const ip = getClientIp(req);
-            const key = `rate-limit:${bucket}:${ip}`;
+            const key = `rate-limit:${bucket}:${getKey(req)}`;
 
             const result = (await redis.eval(RATE_LIMIT_SCRIPT, 1, key, windowSeconds)) as [
                 number,
@@ -76,5 +80,12 @@ export function createRateLimiter({ bucket, limit, windowSeconds = WINDOW_SECOND
     };
 }
 
-export const rateLimit = createRateLimiter({ bucket: "create-url", limit: DEFAULT_LIMIT });
+export const manageRateLimit = createRateLimiter({
+    bucket: "manage",
+    limit: 60,
+    getKey: (req) => (req.ownerId === undefined ? randomUUID() : String(req.ownerId)),
+});
+
+export const redirectRateLimit = createRateLimiter({ bucket: "redirect", limit: 100 });
+
 export const createKeyRateLimit = createRateLimiter({ bucket: "create-key", limit: 5 });

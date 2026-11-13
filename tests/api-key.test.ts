@@ -23,8 +23,9 @@ vi.mock("../src/db/index.js", () => ({
 }));
 
 vi.mock("../src/middleware/rate-limit.middleware.js", () => ({
-    rateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
     createKeyRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+    manageRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+    redirectRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 import app from "../src/app.js";

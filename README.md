@@ -14,7 +14,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Click analytics** | Every redirect atomically increments a Redis counter (`INCR`) without adding latency; a background job flushes counters into PostgreSQL, so `GET /stats` reports lifetime clicks that survive a Redis restart. A failed flush re-credits the Redis counter, so clicks are not dropped when Postgres is briefly unavailable. |
 | **URL expiration** | Optional expiry (1–365 days). Expired links return `410 Gone`; the cache TTL is clamped so it never outlives the link, and expiry writes a marker to Redis so expired links are consistently served `410` without repeated Postgres lookups. |
 | **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
-| **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |
+| **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. Limited **per API key** on management routes (60/min, NAT-safe), **per IP** on redirects (100/min) and key issuance (5/min). |
 | **Validated inputs** | Zod schemas for env config and request bodies; only `http`/`https` URLs are accepted. |
 | **API key issuance** | `POST /api/v1/keys` issues a management key (`usk_…`) that is shown once and stored only as a SHA-256 hash. Management endpoints require it via `X-API-Key`, and links are owner-scoped: another owner's link returns `404`, never `403`. |
 

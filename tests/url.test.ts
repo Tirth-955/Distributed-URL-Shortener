@@ -34,8 +34,9 @@ vi.mock("../src/services/url-stats.service.js", () => ({
 
 // Do not require a live Redis connection for endpoint tests.
 vi.mock("../src/middleware/rate-limit.middleware.js", () => ({
-    rateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
     createKeyRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+    manageRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+    redirectRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 // Authenticated as owner 1 for every endpoint test.

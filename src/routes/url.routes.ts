@@ -1,6 +1,6 @@
 import { Router } from "express";
 
-import { rateLimit } from "../middleware/rate-limit.middleware.js";
+import { manageRateLimit } from "../middleware/rate-limit.middleware.js";
 import { requireApiKey } from "../middleware/auth.middleware.js";
 import {
     createUrl,
@@ -11,9 +11,9 @@ import {
 
 const router = Router();
 
-router.post("/", rateLimit, requireApiKey, createUrl);
-router.get("/", requireApiKey, listUrls);
-router.get("/:shortCode/stats", requireApiKey, getClickStatsHandler);
-router.delete("/:shortCode", requireApiKey, deactivateUrl);
+router.post("/", requireApiKey, manageRateLimit, createUrl);
+router.get("/", requireApiKey, manageRateLimit, listUrls);
+router.get("/:shortCode/stats", requireApiKey, manageRateLimit, getClickStatsHandler);
+router.delete("/:shortCode", requireApiKey, manageRateLimit, deactivateUrl);
 
 export default router;

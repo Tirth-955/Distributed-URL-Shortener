@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 
 import type { Request, Response, NextFunction } from "express";
+import { env } from "../config/env.js";
 import { redis } from "../config/redis.js";
 
 const WINDOW_SECONDS = 60;
@@ -51,6 +52,10 @@ export function createRateLimiter({
     getKey = getClientIp,
 }: RateLimiterOptions) {
     return async function rateLimiter(req: Request, res: Response, next: NextFunction) {
+        if (!env.RATE_LIMIT_ENABLED) {
+            return next();
+        }
+
         try {
             const key = `rate-limit:${bucket}:${getKey(req)}`;
 

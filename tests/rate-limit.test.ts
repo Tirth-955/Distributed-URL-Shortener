@@ -5,9 +5,17 @@ const redisMock = vi.hoisted(() => ({
     eval: vi.fn(),
 }));
 
+const envMock = vi.hoisted(() => ({
+    RATE_LIMIT_ENABLED: true,
+}));
+
 // Do not require a live Redis connection.
 vi.mock("../src/config/redis.js", () => ({
     redis: redisMock,
+}));
+
+vi.mock("../src/config/env.js", () => ({
+    env: envMock,
 }));
 
 import {
@@ -197,6 +205,27 @@ describe("redirectRateLimit", () => {
         expect(next).not.toHaveBeenCalled();
         expect(headers.status).toBe(429);
         expect(headers["Retry-After"]).toBe(20);
+    });
+});
+
+describe("rate limit kill switch", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        envMock.RATE_LIMIT_ENABLED = true;
+    });
+
+    it("skips limiting entirely when RATE_LIMIT_ENABLED=false", async () => {
+        envMock.RATE_LIMIT_ENABLED = false;
+        const { res } = mockResponse();
+        const next = vi.fn();
+
+        await manageRateLimit(mockRequest({ ownerId: 7 }), res, next);
+        await redirectRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalledTimes(2);
+        expect(redisMock.eval).not.toHaveBeenCalled();
+
+        envMock.RATE_LIMIT_ENABLED = true;
     });
 });
 

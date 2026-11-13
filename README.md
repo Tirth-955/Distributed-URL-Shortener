@@ -16,6 +16,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
 | **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |
 | **Validated inputs** | Zod schemas for env config and request bodies; only `http`/`https` URLs are accepted. |
+| **API key issuance** | `POST /api/v1/keys` issues a management key (`usk_…`) that is shown once and stored only as a SHA-256 hash; issuance is IP rate-limited. |
 
 ## API
 
@@ -23,6 +24,7 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. |
 | `POST` | `/api/v1/urls` | Create a short URL. Body: `{ url, expiresInDays?, customCode? }`. |
+| `POST` | `/api/v1/keys` | Issue a management API key. Returned once, stored as a SHA-256 hash. |
 | `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
 | `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. |
 | `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). |

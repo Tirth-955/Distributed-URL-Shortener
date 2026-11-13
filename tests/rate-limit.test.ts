@@ -10,7 +10,7 @@ vi.mock("../src/config/redis.js", () => ({
     redis: redisMock,
 }));
 
-import { getClientIp, rateLimit } from "../src/middleware/rate-limit.middleware.js";
+import { createKeyRateLimit, getClientIp, rateLimit } from "../src/middleware/rate-limit.middleware.js";
 
 function mockRequest(input: { headers?: Record<string, string | undefined>; ip?: string }) {
     return {
@@ -134,5 +134,41 @@ describe("rateLimit", () => {
         await rateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
 
         expect(next).toHaveBeenCalled();
+    });
+});
+
+describe("createKeyRateLimit", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("uses its own bucket and limit of 5 per window", async () => {
+        redisMock.eval.mockResolvedValue([1, 60]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await createKeyRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalled();
+        expect(redisMock.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "rate-limit:create-key:203.0.113.7",
+            60
+        );
+        expect(headers["RateLimit-Limit"]).toBe(5);
+        expect(headers["RateLimit-Remaining"]).toBe(4);
+    });
+
+    it("returns 429 past the issuance limit", async () => {
+        redisMock.eval.mockResolvedValue([6, 30]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await createKeyRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(headers.status).toBe(429);
+        expect(headers["Retry-After"]).toBe(30);
     });
 });

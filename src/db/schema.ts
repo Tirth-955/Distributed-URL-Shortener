@@ -9,3 +9,11 @@ export const urls = pgTable("urls", {
     isActive: boolean("is_active").default(true).notNull(),
     clickCount: integer("click_count").default(0).notNull(),
 });
+
+export const apiKeys = pgTable("api_keys", {
+    id: serial("id").primaryKey(),
+    keyHash: varchar("key_hash", { length: 64 }).notNull().unique(),
+    keyPrefix: varchar("key_prefix", { length: 16 }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at"),
+});

@@ -15,6 +15,13 @@
       "when": 1793079730023,
       "tag": "0001_rainy_vargas",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794547953891,
+      "tag": "0002_daily_whizzer",
+      "breakpoints": true
     }
   ]
 }

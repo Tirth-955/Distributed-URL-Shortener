@@ -32,6 +32,7 @@ vi.mock("../src/services/url-stats.service.js", () => ({
 // Do not require a live Redis connection for endpoint tests.
 vi.mock("../src/middleware/rate-limit.middleware.js", () => ({
     rateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+    createKeyRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 import app from "../src/app.js";

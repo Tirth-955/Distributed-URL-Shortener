@@ -3,6 +3,7 @@ import express from "express";
 
 import { errorHandler } from "./middleware/error.middleware.js";
 import urlRoutes from "./routes/url.routes.js";
+import keyRoutes from "./routes/key.routes.js";
 import { redirectUrl } from "./controllers/url.controller.js";
 
 const app = express();
@@ -23,6 +24,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/v1/urls", urlRoutes);
+app.use("/api/v1/keys", keyRoutes);
 
 app.get("/:shortCode", redirectUrl);
 

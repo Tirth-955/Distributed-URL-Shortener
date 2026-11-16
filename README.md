@@ -224,10 +224,3 @@ Environment caveat: both k6 and the stack ran on the same machine, so these are 
 | `npm test` | Run the test suite (no database or Redis required — external services are mocked). |
 | `npm run db:generate` | Generate a migration from the Drizzle schema. |
 | `npm run db:migrate` | Apply migrations. |
-
-## Roadmap
-
-- [x] Docker Compose setup (Nginx + app × N + Postgres + Redis) — `docker compose up --build -d --scale app=2`
-- [x] Graceful shutdown (drain in-flight requests, close pools/connections)
-- [ ] GitHub Actions CI
-- [ ] Per-URL analytics details (clicks over time, referrers)

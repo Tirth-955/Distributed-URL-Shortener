@@ -1,0 +1,2 @@
+ALTER TABLE "urls" ADD COLUMN "owner_id" integer NOT NULL;--> statement-breakpoint
+ALTER TABLE "urls" ADD CONSTRAINT "urls_owner_id_api_keys_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."api_keys"("id") ON DELETE restrict ON UPDATE no action;

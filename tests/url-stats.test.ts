@@ -76,7 +76,7 @@ describe("getClickStats", () => {
         mockSelectRow(DEACTIVATED_URL);
         redisMock.get.mockResolvedValue("5");
 
-        expect(await getClickStats("abc12345")).toEqual({
+        expect(await getClickStats("abc12345", 42)).toEqual({
             shortCode: "abc12345",
             originalUrl: "https://www.github.com",
             clicks: 12,
@@ -86,14 +86,20 @@ describe("getClickStats", () => {
     it("returns null for an unknown short code", async () => {
         mockSelectRow(undefined);
 
-        expect(await getClickStats("unknown1")).toBeNull();
+        expect(await getClickStats("unknown1", 42)).toBeNull();
+    });
+
+    it("returns null for a link owned by another owner", async () => {
+        mockSelectRow(undefined);
+
+        expect(await getClickStats("abc12345", 999)).toBeNull();
     });
 
     it("treats a missing Redis counter as zero", async () => {
         mockSelectRow({ ...DEACTIVATED_URL, isActive: true, clickCount: 0 });
         redisMock.get.mockResolvedValue(null);
 
-        expect(await getClickStats("abc12345")).toMatchObject({ clicks: 0 });
+        expect(await getClickStats("abc12345", 42)).toMatchObject({ clicks: 0 });
     });
 
     it("degrades to the Postgres count when Redis is unavailable", async () => {
@@ -101,7 +107,7 @@ describe("getClickStats", () => {
         mockSelectRow({ ...DEACTIVATED_URL, isActive: true, clickCount: 3 });
         redisMock.get.mockRejectedValue(new Error("Redis is down"));
 
-        expect(await getClickStats("abc12345")).toMatchObject({ clicks: 3 });
+        expect(await getClickStats("abc12345", 42)).toMatchObject({ clicks: 3 });
     });
 });
 

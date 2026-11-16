@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
 
 import type { Request, Response, NextFunction } from "express";
+import { env } from "../config/env.js";
 import { redis } from "../config/redis.js";
 
 const WINDOW_SECONDS = 60;
-const MAX_REQUESTS = 10;
 
 const RATE_LIMIT_SCRIPT = `
 local count = redis.call("INCR", KEYS[1])
@@ -38,32 +38,59 @@ function normalizeIp(ip: string): string {
     return ip.startsWith("::ffff:") ? ip.slice("::ffff:".length) : ip;
 }
 
-export async function rateLimit(req: Request, res: Response, next: NextFunction) {
-    try {
-        const ip = getClientIp(req);
-        const key = `rate-limit:create-url:${ip}`;
+type RateLimiterOptions = {
+    bucket: string;
+    limit: number;
+    windowSeconds?: number;
+    getKey?: (req: Request) => string;
+};
 
-        const result = (await redis.eval(RATE_LIMIT_SCRIPT, 1, key, WINDOW_SECONDS)) as [
-            number,
-            number,
-        ];
-
-        const [count, ttl] = result;
-
-        res.setHeader("RateLimit-Limit", MAX_REQUESTS);
-        res.setHeader("RateLimit-Remaining", Math.max(0, MAX_REQUESTS - count));
-
-        if (count > MAX_REQUESTS) {
-            res.setHeader("Retry-After", Math.max(1, ttl));
-
-            return res.status(429).json({
-                error: "Too many requests. Please try again later.",
-            });
+export function createRateLimiter({
+    bucket,
+    limit,
+    windowSeconds = WINDOW_SECONDS,
+    getKey = getClientIp,
+}: RateLimiterOptions) {
+    return async function rateLimiter(req: Request, res: Response, next: NextFunction) {
+        if (!env.RATE_LIMIT_ENABLED) {
+            return next();
         }
 
-        return next();
-    } catch (error) {
-        console.error("Rate limiter Redis error:", error);
-        return next();
-    }
+        try {
+            const key = `rate-limit:${bucket}:${getKey(req)}`;
+
+            const result = (await redis.eval(RATE_LIMIT_SCRIPT, 1, key, windowSeconds)) as [
+                number,
+                number,
+            ];
+
+            const [count, ttl] = result;
+
+            res.setHeader("RateLimit-Limit", limit);
+            res.setHeader("RateLimit-Remaining", Math.max(0, limit - count));
+
+            if (count > limit) {
+                res.setHeader("Retry-After", Math.max(1, ttl));
+
+                return res.status(429).json({
+                    error: "Too many requests. Please try again later.",
+                });
+            }
+
+            return next();
+        } catch (error) {
+            console.error("Rate limiter Redis error:", error);
+            return next();
+        }
+    };
 }
+
+export const manageRateLimit = createRateLimiter({
+    bucket: "manage",
+    limit: 60,
+    getKey: (req) => (req.ownerId === undefined ? randomUUID() : String(req.ownerId)),
+});
+
+export const redirectRateLimit = createRateLimiter({ bucket: "redirect", limit: 100 });
+
+export const createKeyRateLimit = createRateLimiter({ bucket: "create-key", limit: 5 });

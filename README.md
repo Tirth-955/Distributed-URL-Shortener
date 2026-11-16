@@ -14,25 +14,32 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | **Click analytics** | Every redirect atomically increments a Redis counter (`INCR`) without adding latency; a background job flushes counters into PostgreSQL, so `GET /stats` reports lifetime clicks that survive a Redis restart. A failed flush re-credits the Redis counter, so clicks are not dropped when Postgres is briefly unavailable. |
 | **URL expiration** | Optional expiry (1–365 days). Expired links return `410 Gone`; the cache TTL is clamped so it never outlives the link, and expiry writes a marker to Redis so expired links are consistently served `410` without repeated Postgres lookups. |
 | **Deactivation** | `DELETE` deactivates a link **and tombstones its Redis cache entry**, so a disabled link is never served stale. |
-| **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. |
+| **Rate limiting** | Distributed, fixed-window limiter implemented as an atomic Lua script (Redis-side `INCR` + `EXPIRE`) with standard `RateLimit-*` headers and `429 Too Many Requests`. Limited **per API key** on management routes (60/min, NAT-safe), **per IP** on redirects (100/min) and key issuance (5/min). |
 | **Validated inputs** | Zod schemas for env config and request bodies; only `http`/`https` URLs are accepted. |
+| **API key issuance** | `POST /api/v1/keys` issues a management key (`usk_…`) that is shown once and stored only as a SHA-256 hash. Management endpoints require it via `X-API-Key`, and links are owner-scoped: another owner's link returns `404`, never `403`. |
 
 ## API
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. |
-| `POST` | `/api/v1/urls` | Create a short URL. Body: `{ url, expiresInDays?, customCode? }`. |
+| `POST` | `/api/v1/urls` | Create a short URL. Requires `X-API-Key`. Body: `{ url, expiresInDays?, customCode? }`. |
+| `POST` | `/api/v1/keys` | Issue a management API key. Returned once, stored as a SHA-256 hash. |
 | `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
-| `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. |
-| `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). |
+| `GET` | `/api/v1/urls` | List the authenticated key's URLs. Cursor pagination: `?limit=`, `?cursor=`. Requires `X-API-Key`. |
+| `GET` | `/api/v1/urls/:shortCode/stats` | Click count for a short URL. Requires `X-API-Key`. |
+| `DELETE` | `/api/v1/urls/:shortCode` | Deactivate a short URL (204). Requires `X-API-Key`. |
 
 ### Examples
 
 ```bash
-# Create a short URL
+# Issue a management API key (shown once - store it)
+curl -X POST http://localhost:3000/api/v1/keys
+
+# Create a short URL (authenticated)
 curl -X POST http://localhost:3000/api/v1/urls \
   -H "Content-Type: application/json" \
+  -H "X-API-Key: usk_xxxxxxxxxxxx..." \
   -d '{ "url": "https://github.com/trending", "expiresInDays": 7, "customCode": "gh-trend" }'
 
 # Response
@@ -43,11 +50,14 @@ curl -X POST http://localhost:3000/api/v1/urls \
   "expiresAt": "2026-11-03T00:00:00.000Z"
 }
 
-# Redirect
+# Redirect (public)
 curl -i http://localhost:3000/gh-trend
 
-# Click stats
-curl http://localhost:3000/api/v1/urls/gh-trend/stats
+# Click stats (authenticated)
+curl -H "X-API-Key: usk_xxxxxxxxxxxx..." http://localhost:3000/api/v1/urls/gh-trend/stats
+
+# List your URLs (authenticated, cursor pagination)
+curl -H "X-API-Key: usk_xxxxxxxxxxxx..." "http://localhost:3000/api/v1/urls?limit=10"
 ```
 
 ## Architecture
@@ -91,6 +101,7 @@ src/
 ├── db/                         # Drizzle schema + pooled connection
 └── utils/                      # Short code generation
 tests/                          # Vitest + Supertest endpoint tests
+load/                           # k6 load tests: scenarios + 1-vs-3 replica matrix runner
 drizzle/                        # Generated SQL migrations
 Dockerfile                      # Multi-stage build: runtime image + one-shot migrate image
 docker-compose.yml              # nginx + app × N + postgres + redis topology
@@ -120,6 +131,7 @@ Environment variables (see `.env.example`):
 | `DATABASE_SSL` | `true` for cloud Postgres (Neon/Supabase), `false` for local/Docker Postgres. |
 | `BASE_URL` | Public base URL used to build short links. |
 | `REDIS_URL` | Redis connection string. |
+| `RATE_LIMIT_ENABLED` | Set to `false` only for load testing; disables the Redis rate limiters. |
 
 ## Running the full distributed stack (Docker Compose)
 
@@ -150,6 +162,58 @@ Each app instance identifies itself in `/health` (its container hostname), which
 
 Nginx caches DNS results, which would silently break round-robin over scaled replicas. The config uses Docker's embedded DNS resolver (`127.0.0.11`) with a 10s re-resolution TTL, so the upstream set tracks the live replicas.
 
+### Load testing with k6
+
+`load/run-matrix.ps1` runs a 2×2 matrix — **cached vs uncached redirects** × **1 vs 3 app replicas** — and records **RPS, p95 and p99** per run in `load/results/`, printing a summary table at the end.
+
+```powershell
+# Requires k6 (https://k6.io) and Docker Compose in PATH
+./load/run-matrix.ps1 -Vus 50 -DurationSeconds 30
+```
+
+What each scenario measures:
+
+- **`cached`** — 5 hot codes created in setup, steady traffic across them: after the first hit every redirect is served from Redis, so this profiles the hot path (nginx → app → Redis).
+- **`uncached`** — a fresh nonexistent code per request: every request is a Redis miss falling through to Postgres, so this profiles the cold path (nginx → app → Postgres lookup).
+
+Notes:
+
+- The runner boots the stack with `load/docker-compose.load.yml`, which sets `RATE_LIMIT_ENABLED=false` — otherwise the per-IP redirect limiter would turn the run into a 429 generator (all VUs share one source IP). Rate limiting stays on for normal use.
+- Replicas scale **1 → 3, never down**, so nginx's 10s DNS re-resolution only ever discovers new instances instead of routing to dead ones.
+- The stack is left scaled to 3 replicas with rate limiting disabled; restore with `docker compose up -d --build --scale app=1` (without the override file).
+
+#### Measured results
+
+All services in Docker on one machine (Windows); two independent runs:
+
+**Normal load — 50 virtual users, 30 s per run:**
+
+| Replicas | Scenario | RPS | p50 (ms) | p95 (ms) | p99 (ms) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | cached | 1,569 | 32.1 | 44.6 | 54.0 |
+| 1 | uncached | 1,748 | 26.0 | 53.7 | 70.6 |
+| 3 | cached | 2,916 | 14.6 | 37.8 | 46.0 |
+| 3 | uncached | 1,863 | 21.7 | 62.2 | 77.9 |
+
+**Saturation load — 200 virtual users, 60 s per run:**
+
+| Replicas | Scenario | RPS | p50 (ms) | p95 (ms) | p99 (ms) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | cached | 2,009 | 105.7 | 168.8 | 290.6 |
+| 1 | uncached | 1,519 | 123.8 | 276.1 | 376.0 |
+| 3 | cached | 2,955 | 51.9 | 167.2 | 217.7 |
+| 3 | uncached | 1,867 | 52.1 | 292.1 | 378.8 |
+
+What the numbers show:
+
+- **Horizontal scaling pays off on the hot path** — at 50 VUs, 1 → 3 replicas lifted cache-hit throughput **1.9×** (1,569 → 2,916 RPS) and cut p50 latency from 32 ms to 15 ms, since each replica serves Redis lookups independently. The gain held under saturation (+47% at 200 VUs).
+- **Cache hits beat cache misses** — at 3 replicas, 1.6× more throughput (2,916 vs 1,863 RPS) with p99 46 ms vs 78 ms; under saturation the gap widens further in latency terms (p99 218 ms vs 379 ms).
+- **The cache-miss path is the bottleneck** — uncached throughput stayed flat across both runs (1,863 → 1,867 RPS at 3 replicas) with a p95 *regression* under saturation (276 → 292 ms at 1 replica, 62 → 292 ms at 3): every miss funnels into the same single Postgres instance, so extra app replicas just queue behind it. This is exactly the ceiling the Redis cache exists to avoid.
+- **~2,950 RPS is the saturation ceiling of the 3-replica topology** — both runs converge on it from opposite directions: 2,916 RPS below saturation (latency still low), 2,955 RPS at saturation (tail latency stretched). Reproducing the same ceiling with two independent load profiles isolates it as a real infrastructure limit rather than measurement noise.
+
+Environment caveat: both k6 and the stack ran on the same machine, so these are throughput-at-the-localhost numbers (the client itself becomes a bottleneck); relative comparisons between runs are meaningful, absolute values are hardware-dependent.
+
+
 ## Scripts
 
 | Command | Description |
@@ -160,10 +224,3 @@ Nginx caches DNS results, which would silently break round-robin over scaled rep
 | `npm test` | Run the test suite (no database or Redis required — external services are mocked). |
 | `npm run db:generate` | Generate a migration from the Drizzle schema. |
 | `npm run db:migrate` | Apply migrations. |
-
-## Roadmap
-
-- [x] Docker Compose setup (Nginx + app × N + Postgres + Redis) — `docker compose up --build -d --scale app=2`
-- [x] Graceful shutdown (drain in-flight requests, close pools/connections)
-- [ ] GitHub Actions CI
-- [ ] Per-URL analytics details (clicks over time, referrers)

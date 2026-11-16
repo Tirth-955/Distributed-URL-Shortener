@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, lt, or } from "drizzle-orm";
 
 import { db } from "../db/index.js";
 import { urls } from "../db/schema.js";
@@ -10,12 +10,14 @@ import {
     markUrlExpired,
     tombstoneCachedUrl,
 } from "./url-cache.service.js";
+import { encodeCursor } from "../utils/cursor.js";
 
 const RESERVED_SHORT_CODES = new Set(["health", "api", "urls"]);
 const RANDOM_CODE_ATTEMPTS = 3;
 
 export type CreateShortUrlInput = {
     originalUrl: string;
+    ownerId: number;
     expiresInDays?: number;
     customCode?: string;
 };
@@ -33,6 +35,7 @@ export async function createShortUrl(input: CreateShortUrlInput) {
 
         try {
             await db.insert(urls).values({
+                ownerId: input.ownerId,
                 shortCode: input.customCode,
                 originalUrl: input.originalUrl,
                 expiresAt,
@@ -53,6 +56,7 @@ export async function createShortUrl(input: CreateShortUrlInput) {
 
         try {
             await db.insert(urls).values({
+                ownerId: input.ownerId,
                 shortCode,
                 originalUrl: input.originalUrl,
                 expiresAt,
@@ -120,11 +124,11 @@ export async function getUrlByShortCode(shortCode: string) {
     };
 }
 
-export async function deactivateShortUrl(shortCode: string): Promise<boolean> {
+export async function deactivateShortUrl(shortCode: string, ownerId: number): Promise<boolean> {
     const updated = await db
         .update(urls)
         .set({ isActive: false })
-        .where(eq(urls.shortCode, shortCode))
+        .where(and(eq(urls.shortCode, shortCode), eq(urls.ownerId, ownerId)))
         .returning({ id: urls.id });
 
     if (updated.length === 0) {
@@ -134,6 +138,53 @@ export async function deactivateShortUrl(shortCode: string): Promise<boolean> {
     await tombstoneCachedUrl(shortCode);
 
     return true;
+}
+
+export type UrlListOptions = {
+    limit: number;
+    cursor?: { createdAt: Date; id: number } | null;
+};
+
+export type UrlListItem = {
+    shortCode: string;
+    originalUrl: string;
+    createdAt: Date;
+    expiresAt: Date | null;
+    isActive: boolean;
+    clickCount: number;
+};
+
+export async function listUrlsByOwner(ownerId: number, options: UrlListOptions) {
+    const cursorCondition = options.cursor
+        ? or(
+              lt(urls.createdAt, options.cursor.createdAt),
+              and(eq(urls.createdAt, options.cursor.createdAt), lt(urls.id, options.cursor.id))
+          )
+        : undefined;
+
+    const rows = await db
+        .select({
+            id: urls.id,
+            shortCode: urls.shortCode,
+            originalUrl: urls.originalUrl,
+            createdAt: urls.createdAt,
+            expiresAt: urls.expiresAt,
+            isActive: urls.isActive,
+            clickCount: urls.clickCount,
+        })
+        .from(urls)
+        .where(and(eq(urls.ownerId, ownerId), cursorCondition))
+        .orderBy(desc(urls.createdAt), desc(urls.id))
+        .limit(options.limit + 1);
+
+    const hasMore = rows.length > options.limit;
+    const items = hasMore ? rows.slice(0, options.limit) : rows;
+    const last = items[items.length - 1];
+
+    return {
+        items,
+        nextCursor: hasMore && last ? encodeCursor(last.createdAt, last.id) : null,
+    };
 }
 
 function isUniqueViolation(error: unknown): boolean {

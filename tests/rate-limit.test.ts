@@ -5,17 +5,35 @@ const redisMock = vi.hoisted(() => ({
     eval: vi.fn(),
 }));
 
+const envMock = vi.hoisted(() => ({
+    RATE_LIMIT_ENABLED: true,
+}));
+
 // Do not require a live Redis connection.
 vi.mock("../src/config/redis.js", () => ({
     redis: redisMock,
 }));
 
-import { getClientIp, rateLimit } from "../src/middleware/rate-limit.middleware.js";
+vi.mock("../src/config/env.js", () => ({
+    env: envMock,
+}));
 
-function mockRequest(input: { headers?: Record<string, string | undefined>; ip?: string }) {
+import {
+    createKeyRateLimit,
+    getClientIp,
+    manageRateLimit,
+    redirectRateLimit,
+} from "../src/middleware/rate-limit.middleware.js";
+
+function mockRequest(input: {
+    headers?: Record<string, string | undefined>;
+    ip?: string;
+    ownerId?: number;
+}) {
     return {
         headers: input.headers ?? {},
         ip: input.ip,
+        ownerId: input.ownerId,
     } as unknown as Request;
 }
 
@@ -93,31 +111,48 @@ describe("getClientIp", () => {
     });
 });
 
-describe("rateLimit", () => {
+describe("manageRateLimit", () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    it("forwards under the limit and sets standard headers", async () => {
-        redisMock.eval.mockResolvedValue([3, 57]);
+    it("keys the counter by owner id, not client IP", async () => {
+        redisMock.eval.mockResolvedValue([1, 60]);
         const { res, headers } = mockResponse();
         const next = vi.fn();
 
-        await rateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+        await manageRateLimit(mockRequest({ ownerId: 7, ip: "203.0.113.7" }), res, next);
 
         expect(next).toHaveBeenCalled();
-        expect(headers.status).toBeUndefined();
-        expect(headers["RateLimit-Limit"]).toBe(10);
-        expect(headers["RateLimit-Remaining"]).toBe(7);
-        expect(redisMock.eval).toHaveBeenCalledWith(expect.any(String), 1, "rate-limit:create-url:203.0.113.7", 60);
+        expect(redisMock.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "rate-limit:manage:7",
+            60
+        );
+        expect(headers["RateLimit-Limit"]).toBe(60);
+        expect(headers["RateLimit-Remaining"]).toBe(59);
+    });
+
+    it("never shares a bucket when the owner id is missing", async () => {
+        redisMock.eval.mockResolvedValue([1, 60]);
+        const { res } = mockResponse();
+        const next = vi.fn();
+
+        await manageRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalled();
+        const [, , key] = redisMock.eval.mock.calls[0];
+
+        expect(key).toMatch(/^rate-limit:manage:[0-9a-f-]{36}$/);
     });
 
     it("returns 429 past the limit with a Retry-After", async () => {
-        redisMock.eval.mockResolvedValue([11, 42]);
+        redisMock.eval.mockResolvedValue([61, 42]);
         const { res, headers } = mockResponse();
         const next = vi.fn();
 
-        await rateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+        await manageRateLimit(mockRequest({ ownerId: 7 }), res, next);
 
         expect(next).not.toHaveBeenCalled();
         expect(headers.status).toBe(429);
@@ -131,8 +166,101 @@ describe("rateLimit", () => {
         const { res } = mockResponse();
         const next = vi.fn();
 
-        await rateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+        await manageRateLimit(mockRequest({ ownerId: 7 }), res, next);
 
         expect(next).toHaveBeenCalled();
+    });
+});
+
+describe("redirectRateLimit", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("keys the counter by client IP", async () => {
+        redisMock.eval.mockResolvedValue([1, 60]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await redirectRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalled();
+        expect(redisMock.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "rate-limit:redirect:203.0.113.7",
+            60
+        );
+        expect(headers["RateLimit-Limit"]).toBe(100);
+        expect(headers["RateLimit-Remaining"]).toBe(99);
+    });
+
+    it("returns 429 past the limit", async () => {
+        redisMock.eval.mockResolvedValue([101, 20]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await redirectRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(headers.status).toBe(429);
+        expect(headers["Retry-After"]).toBe(20);
+    });
+});
+
+describe("rate limit kill switch", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        envMock.RATE_LIMIT_ENABLED = true;
+    });
+
+    it("skips limiting entirely when RATE_LIMIT_ENABLED=false", async () => {
+        envMock.RATE_LIMIT_ENABLED = false;
+        const { res } = mockResponse();
+        const next = vi.fn();
+
+        await manageRateLimit(mockRequest({ ownerId: 7 }), res, next);
+        await redirectRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalledTimes(2);
+        expect(redisMock.eval).not.toHaveBeenCalled();
+
+        envMock.RATE_LIMIT_ENABLED = true;
+    });
+});
+
+describe("createKeyRateLimit", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("uses its own bucket and limit of 5 per window", async () => {
+        redisMock.eval.mockResolvedValue([1, 60]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await createKeyRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).toHaveBeenCalled();
+        expect(redisMock.eval).toHaveBeenCalledWith(
+            expect.any(String),
+            1,
+            "rate-limit:create-key:203.0.113.7",
+            60
+        );
+        expect(headers["RateLimit-Limit"]).toBe(5);
+        expect(headers["RateLimit-Remaining"]).toBe(4);
+    });
+
+    it("returns 429 past the issuance limit", async () => {
+        redisMock.eval.mockResolvedValue([6, 30]);
+        const { res, headers } = mockResponse();
+        const next = vi.fn();
+
+        await createKeyRateLimit(mockRequest({ ip: "203.0.113.7" }), res, next);
+
+        expect(next).not.toHaveBeenCalled();
+        expect(headers.status).toBe(429);
+        expect(headers["Retry-After"]).toBe(30);
     });
 });

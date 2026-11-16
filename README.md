@@ -23,6 +23,8 @@ It takes long URLs and returns short links (`https://your-domain.com/abc123`) th
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness probe. |
+| `GET` | `/docs` | Interactive Swagger UI. |
+| `GET` | `/openapi.json` | OpenAPI 3 document. |
 | `POST` | `/api/v1/urls` | Create a short URL. Requires `X-API-Key`. Body: `{ url, expiresInDays?, customCode? }`. |
 | `POST` | `/api/v1/keys` | Issue a management API key. Returned once, stored as a SHA-256 hash. |
 | `GET` | `/:shortCode` | Redirect (302) to the original URL. `404` unknown, `410` expired or deactivated. |
@@ -99,6 +101,7 @@ src/
 ├── middleware/                 # Rate limiting, error handling
 ├── validators/                 # Zod request schemas
 ├── db/                         # Drizzle schema + pooled connection
+├── docs/                       # OpenAPI spec + Swagger UI mount
 └── utils/                      # Short code generation
 tests/                          # Vitest + Supertest endpoint tests
 load/                           # k6 load tests: scenarios + 1-vs-3 replica matrix runner
@@ -121,6 +124,8 @@ cp .env.example .env   # fill in your values
 npm run db:migrate     # create/upgrade the schema
 npm run dev            # start in watch mode
 ```
+
+Interactive API docs: [http://localhost:3000/docs](http://localhost:3000/docs) (spec at `/openapi.json`).
 
 Environment variables (see `.env.example`):
 
@@ -213,7 +218,6 @@ What the numbers show:
 
 Environment caveat: both k6 and the stack ran on the same machine, so these are throughput-at-the-localhost numbers (the client itself becomes a bottleneck); relative comparisons between runs are meaningful, absolute values are hardware-dependent.
 
-
 ## Scripts
 
 | Command | Description |
@@ -223,4 +227,4 @@ Environment caveat: both k6 and the stack ran on the same machine, so these are 
 | `npm start` | Run the compiled build. |
 | `npm test` | Run the test suite (no database or Redis required — external services are mocked). |
 | `npm run db:generate` | Generate a migration from the Drizzle schema. |
-| `npm run db:migrate` | Apply migrations. |
+| `npm run db:migrate` | Apply migrations |

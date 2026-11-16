@@ -12,7 +12,7 @@ import {
 } from "./url-cache.service.js";
 import { encodeCursor } from "../utils/cursor.js";
 
-const RESERVED_SHORT_CODES = new Set(["health", "api", "urls"]);
+const RESERVED_SHORT_CODES = new Set(["health", "api", "urls", "docs", "openapi"]);
 const RANDOM_CODE_ATTEMPTS = 3;
 
 export type CreateShortUrlInput = {

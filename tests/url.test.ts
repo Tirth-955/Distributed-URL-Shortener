@@ -62,6 +62,27 @@ describe("URL Shortener API", () => {
         });
     });
 
+    describe("Swagger", () => {
+        it("serves the OpenAPI document", async () => {
+            const response = await request(app).get("/openapi.json");
+
+            expect(response.status).toBe(200);
+            expect(response.body.openapi).toBe("3.0.3");
+            expect(response.body.paths).toHaveProperty("/health");
+            expect(response.body.paths).toHaveProperty("/api/v1/urls");
+            expect(response.body.paths).toHaveProperty("/api/v1/keys");
+            expect(response.body.paths).toHaveProperty("/{shortCode}");
+        });
+
+        it("serves Swagger UI", async () => {
+            const response = await request(app).get("/docs/");
+
+            expect(response.status).toBe(200);
+            expect(response.headers["content-type"]).toMatch(/html/);
+            expect(response.text).toContain("swagger-ui");
+        });
+    });
+
     describe("POST /api/v1/urls", () => {
         it("creates a short URL", async () => {
             mocks.createShortUrl.mockResolvedValue({

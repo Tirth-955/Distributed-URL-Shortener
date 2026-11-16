@@ -22,6 +22,7 @@ vi.mock("../src/db/index.js", () => ({ db: dbMock }));
 
 import { createShortUrl, deactivateShortUrl, getUrlByShortCode, listUrlsByOwner } from "../src/services/url.service.js";
 import { decodeCursor } from "../src/utils/cursor.js";
+import { ShortCodeTakenError } from "../src/utils/errors.js";
 
 function mockSelectRow(row: unknown) {
     dbMock.select.mockReturnValue({
@@ -154,6 +155,18 @@ describe("createShortUrl", () => {
             shortCode: "my-github",
             originalUrl: "https://www.github.com",
         });
+    });
+
+    it("rejects reserved short codes used by the app itself", async () => {
+        await expect(
+            createShortUrl({
+                ownerId: 7,
+                originalUrl: "https://www.github.com",
+                customCode: "docs",
+            }),
+        ).rejects.toBeInstanceOf(ShortCodeTakenError);
+
+        expect(dbMock.insert).not.toHaveBeenCalled();
     });
 
     it("stamps the owner id on creation with a random code", async () => {

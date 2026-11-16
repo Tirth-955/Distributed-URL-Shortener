@@ -6,6 +6,7 @@ import { redirectRateLimit } from "./middleware/rate-limit.middleware.js";
 import urlRoutes from "./routes/url.routes.js";
 import keyRoutes from "./routes/key.routes.js";
 import { redirectUrl } from "./controllers/url.controller.js";
+import { mountSwagger } from "./docs/swagger.js";
 
 const app = express();
 
@@ -26,6 +27,8 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/v1/urls", urlRoutes);
 app.use("/api/v1/keys", keyRoutes);
+
+mountSwagger(app);
 
 app.get("/:shortCode", redirectRateLimit, redirectUrl);
 

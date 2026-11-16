@@ -1,0 +1,1 @@
+CREATE INDEX "idx_urls_owner_created_at_id" ON "urls" USING btree ("owner_id","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

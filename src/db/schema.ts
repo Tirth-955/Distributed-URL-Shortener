@@ -1,4 +1,13 @@
-import { pgTable, serial, varchar, text, timestamp, boolean, integer } from "drizzle-orm/pg-core";
+import {
+    pgTable,
+    serial,
+    varchar,
+    text,
+    timestamp,
+    boolean,
+    integer,
+    index,
+} from "drizzle-orm/pg-core";
 
 export const apiKeys = pgTable("api_keys", {
     id: serial("id").primaryKey(),
@@ -8,15 +17,25 @@ export const apiKeys = pgTable("api_keys", {
     revokedAt: timestamp("revoked_at"),
 });
 
-export const urls = pgTable("urls", {
-    id: serial("id").primaryKey(),
-    ownerId: integer("owner_id")
-        .notNull()
-        .references(() => apiKeys.id, { onDelete: "restrict" }),
-    shortCode: varchar("short_code", { length: 12 }).notNull().unique(),
-    originalUrl: text("original_url").notNull(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    expiresAt: timestamp("expires_at"),
-    isActive: boolean("is_active").default(true).notNull(),
-    clickCount: integer("click_count").default(0).notNull(),
-});
+export const urls = pgTable(
+    "urls",
+    {
+        id: serial("id").primaryKey(),
+        ownerId: integer("owner_id")
+            .notNull()
+            .references(() => apiKeys.id, { onDelete: "restrict" }),
+        shortCode: varchar("short_code", { length: 12 }).notNull().unique(),
+        originalUrl: text("original_url").notNull(),
+        createdAt: timestamp("created_at").defaultNow().notNull(),
+        expiresAt: timestamp("expires_at"),
+        isActive: boolean("is_active").default(true).notNull(),
+        clickCount: integer("click_count").default(0).notNull(),
+    },
+    (table) => [
+        index("idx_urls_owner_created_at_id").on(
+            table.ownerId,
+            table.createdAt.desc(),
+            table.id.desc()
+        ),
+    ]
+);
